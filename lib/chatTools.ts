@@ -24,6 +24,7 @@ export async function toolSearchPlace(query: string) {
       geo_type: s.geo_type,
       county: s.county,
       state: s.state,
+      state_fips: s.state_fips,
     })),
   };
 }

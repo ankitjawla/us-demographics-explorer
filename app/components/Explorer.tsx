@@ -543,6 +543,19 @@ export default function Explorer() {  const [meta, setMeta] = useState<Meta | nu
     }
   }, []);
 
+  /* Chat widget deep-link: "View in dashboard" from a chat answer selects the place. */
+  useEffect(() => {
+    const onChatSelect = (e: Event) => {
+      const g = (e as CustomEvent<Geography>).detail;
+      if (g && g.geo_id) {
+        selectGeo(g);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    };
+    window.addEventListener("chat:select-place", onChatSelect);
+    return () => window.removeEventListener("chat:select-place", onChatSelect);
+  }, [selectGeo]);
+
   const selectPlace = useCallback(
     (p: PlaceSuggestion) => {
       selectGeo({
