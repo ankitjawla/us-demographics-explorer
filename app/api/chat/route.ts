@@ -444,40 +444,38 @@ export async function POST(req: Request) {
             }
           };
           try {
-            // Dual stream modes: "messages" for token-level streaming,
-            // "values" for the authoritative final state (ToolMessages included).
-            // With multiple modes each chunk is a [mode, payload] tuple.
+            // Single "messages" stream mode: yields [message, metadata] tuples for
+            // (1) chat-model token chunks and (2) whole messages from node outputs
+            // (incl. ToolMessages). We stream only the assistant's own tokens as
+            // SSE, and collect tool results from the same stream for chart/place.
             const stream = await agent.stream(
               { messages: lcMessages },
               {
-                streamMode: ["messages", "values"],
+                streamMode: "messages",
                 recursionLimit: 15,
                 signal: req.signal,
               }
             );
             let fullText = "";
-            let lastState: { messages?: unknown } | null = null;
+            const calls: ToolCall[] = [];
             for await (const chunk of stream) {
-              const [mode, data] = chunk as [string, unknown];
-              if (mode === "messages") {
-                const [msgChunk] = data as [{ content?: unknown }];
-                const t = extractText(msgChunk?.content);
+              const [msg] = chunk as [
+                {
+                  getType?: () => string;
+                  content?: unknown;
+                  name?: unknown;
+                },
+              ];
+              const msgType =
+                msg && typeof msg.getType === "function" ? msg.getType() : "";
+              if (msgType === "ai") {
+                const t = extractText(msg.content);
                 if (t) {
                   fullText += t;
                   send({ token: t });
                 }
-              } else if (mode === "values") {
-                lastState = data as { messages?: unknown };
-              }
-            }
-            const calls: ToolCall[] = [];
-            const finalMessages = Array.isArray(lastState?.messages) ? lastState.messages : [];
-            for (const m of finalMessages) {
-              if (m && typeof m === "object" && "tool_call_id" in m) {
-                calls.push({
-                  name: String((m as { name?: unknown }).name || ""),
-                  output: (m as { content?: unknown }).content,
-                });
+              } else if (msgType === "tool") {
+                calls.push({ name: String(msg.name || ""), output: msg.content });
               }
             }
             const extras = buildExtras(calls, fullText);
