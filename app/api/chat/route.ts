@@ -446,8 +446,8 @@ export async function POST(req: Request) {
               { messages: lcMessages },
               { version: "v2", recursionLimit: 15, signal: req.signal }
             );
-            const calls: ToolCall[] = [];
             let fullText = "";
+            let finalMessages: Array<Record<string, unknown>> | null = null;
             for await (const ev of events) {
               if (ev.event === "on_chat_model_stream") {
                 const t = extractText(ev.data?.chunk?.content);
@@ -455,8 +455,22 @@ export async function POST(req: Request) {
                   fullText += t;
                   send({ token: t });
                 }
-              } else if (ev.event === "on_tool_end") {
-                calls.push({ name: String(ev.name || ""), output: ev.data?.output });
+              } else if (ev.event === "on_chain_end") {
+                // Capture the final graph state; ToolMessages in it mirror the
+                // invoke path, so chart/place extras are built from the same source.
+                const out = ev.data?.output as { messages?: unknown } | undefined;
+                if (out && Array.isArray(out.messages)) {
+                  finalMessages = out.messages as Array<Record<string, unknown>>;
+                }
+              }
+            }
+            const calls: ToolCall[] = [];
+            for (const m of finalMessages || []) {
+              if (m && typeof m === "object" && "tool_call_id" in m) {
+                calls.push({
+                  name: String((m as { name?: unknown }).name || ""),
+                  output: (m as { content?: unknown }).content,
+                });
               }
             }
             const extras = buildExtras(calls, fullText);
