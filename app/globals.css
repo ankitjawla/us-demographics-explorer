@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+/* Thin scrollbars for result dropdowns */
+.nice-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.nice-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 8px;
+}
