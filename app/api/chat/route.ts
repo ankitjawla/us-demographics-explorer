@@ -459,7 +459,7 @@ export async function POST(req: Request) {
             let fullText = "";
             const calls: ToolCall[] = [];
             for await (const chunk of stream) {
-              const [msg] = chunk as [
+              const [msg] = chunk as unknown as [
                 {
                   getType?: () => string;
                   content?: unknown;
