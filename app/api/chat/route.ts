@@ -259,10 +259,12 @@ function buildExtras(calls: ToolCall[], fullText: string): {
         const metricLabel = METRIC_LABEL[metric] || metric;
         const order = parsed.order === "bottom" ? "Bottom" : "Top";
         const scope = parsed.geo_type === "state" ? "states" : "counties";
+        const scopeLabel =
+          valid.length === 1 ? scope.replace(/s$/, "") : scope;
         const stateName = parsed.state_fips ? String(valid[0]?.state || "") : "";
         chart = {
           type: "bar",
-          title: `${order} ${valid.length} ${scope} by ${metricLabel}`,
+          title: `${order} ${valid.length} ${scopeLabel} by ${metricLabel}`,
           subtitle: stateName || "United States",
           bars: valid.map((r) => ({
             label: String(r.name).replace(/ County$/, ""),
