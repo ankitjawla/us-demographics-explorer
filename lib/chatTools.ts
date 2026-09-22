@@ -44,6 +44,7 @@ export async function toolGetSnapshot(geo_id: string) {
   const bachelorsPlus =
     (ind.education[3]?.pct ?? 0) + (ind.education[4]?.pct ?? 0);
   return {
+    geo_id: id,
     name: bundle.geography.name,
     geo_type: bundle.geography.geo_type,
     state: bundle.geography.state_name,
