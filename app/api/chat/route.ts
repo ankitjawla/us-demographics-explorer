@@ -444,30 +444,35 @@ export async function POST(req: Request) {
             }
           };
           try {
-            const events = agent.streamEvents(
+            // Dual stream modes: "messages" for token-level streaming,
+            // "values" for the authoritative final state (ToolMessages included).
+            // With multiple modes each chunk is a [mode, payload] tuple.
+            const stream = await agent.stream(
               { messages: lcMessages },
-              { version: "v2", recursionLimit: 15, signal: req.signal }
+              {
+                streamMode: ["messages", "values"],
+                recursionLimit: 15,
+                signal: req.signal,
+              }
             );
             let fullText = "";
-            let finalMessages: Array<Record<string, unknown>> | null = null;
-            for await (const ev of events) {
-              if (ev.event === "on_chat_model_stream") {
-                const t = extractText(ev.data?.chunk?.content);
+            let lastState: { messages?: unknown } | null = null;
+            for await (const chunk of stream) {
+              const [mode, data] = chunk as [string, unknown];
+              if (mode === "messages") {
+                const [msgChunk] = data as [{ content?: unknown }];
+                const t = extractText(msgChunk?.content);
                 if (t) {
                   fullText += t;
                   send({ token: t });
                 }
-              } else if (ev.event === "on_chain_end") {
-                // Capture the final graph state; ToolMessages in it mirror the
-                // invoke path, so chart/place extras are built from the same source.
-                const out = ev.data?.output as { messages?: unknown } | undefined;
-                if (out && Array.isArray(out.messages)) {
-                  finalMessages = out.messages as Array<Record<string, unknown>>;
-                }
+              } else if (mode === "values") {
+                lastState = data as { messages?: unknown };
               }
             }
             const calls: ToolCall[] = [];
-            for (const m of finalMessages || []) {
+            const finalMessages = Array.isArray(lastState?.messages) ? lastState.messages : [];
+            for (const m of finalMessages) {
               if (m && typeof m === "object" && "tool_call_id" in m) {
                 calls.push({
                   name: String((m as { name?: unknown }).name || ""),
