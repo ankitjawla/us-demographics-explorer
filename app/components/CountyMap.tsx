@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { feature } from "topojson-client";
 import { geoAlbersUsa } from "d3-geo";
+import { METRIC_DEFS, formatMetric, type MetricKey } from "@/lib/metricDefs";
 
 export interface MapGeography {
   geo_id: string;
@@ -12,49 +13,39 @@ export interface MapGeography {
   state_name: string;
 }
 
-type MetricKey = "population" | "income" | "poverty" | "housing";
+/** Map pills, in display order. */
+const MAP_METRICS: MetricKey[] = [
+  "income", "population", "poverty", "diversity", "college", "hispanic",
+  "seniors", "youth", "homeownership", "vacancy", "housing",
+];
 
 const METRICS: Array<{
   key: MetricKey;
   label: string;
   hint: string;
   format: (v: number | null) => string;
-}> = [
-  {
-    key: "population",
-    label: "Population",
-    hint: "Where people live",
-    format: (v) => (v == null ? "—" : Math.round(v).toLocaleString("en-US")),
-  },
-  {
-    key: "income",
-    label: "Median income",
-    hint: "Where paychecks are biggest",
-    format: (v) => (v == null ? "—" : "$" + Math.round(v).toLocaleString("en-US")),
-  },
-  {
-    key: "poverty",
-    label: "Poverty rate",
-    hint: "Where hardship concentrates",
-    format: (v) => (v == null ? "—" : `${v.toFixed(1)}%`),
-  },
-  {
-    key: "housing",
-    label: "Housing units",
-    hint: "Where the homes are",
-    format: (v) => (v == null ? "—" : Math.round(v).toLocaleString("en-US")),
-  },
-];
+}> = MAP_METRICS.map((key) => ({
+  key,
+  label: METRIC_DEFS[key].label,
+  hint: METRIC_DEFS[key].hint,
+  format: (v: number | null) => formatMetric(key, v),
+}));
 
 /**
- * Colorblind-safe sequential ramps (ColorBrewer):
- * population = Blues, income = Blue-Green, poverty = Yellow-Orange-Brown, housing = Purples.
+ * Colorblind-safe sequential ramps (ColorBrewer), light → dark.
  */
 const RAMPS: Record<MetricKey, string[]> = {
   population: ["#eff3ff", "#bdd7e7", "#6baed6", "#3182bd", "#08519c"],
   income: ["#edf8fb", "#b2e2e2", "#66c2a4", "#2ca25f", "#006d2c"],
   poverty: ["#ffffd4", "#fed98e", "#fe9929", "#d95f0e", "#993404"],
   housing: ["#f2f0f7", "#cbc9e2", "#9e9ac8", "#756bb1", "#54278f"],
+  diversity: ["#feebe2", "#fbb4b9", "#f768a1", "#c51b8a", "#7a0177"],
+  college: ["#f1eef6", "#bdc9e1", "#74a9cf", "#2b8cbe", "#045a8d"],
+  hispanic: ["#fef0d9", "#fdcc8a", "#fc8d59", "#e34a33", "#b30000"],
+  seniors: ["#edf8fb", "#b3cde3", "#8c96c6", "#8856a7", "#810f7c"],
+  youth: ["#ffffcc", "#c2e699", "#78c679", "#31a354", "#006837"],
+  homeownership: ["#f6eff7", "#bdc9e1", "#67a9cf", "#1c9099", "#016c59"],
+  vacancy: ["#fee5d9", "#fcae91", "#fb6a4a", "#de2d26", "#a50f15"],
 };
 const NO_DATA = "#e7e5e4";
 

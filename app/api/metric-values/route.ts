@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /**
- * GET /api/metric-values?metric=income&state_fips=06
+ * GET /api/metric-values?metric=income&state_fips=06[&mode=top&limit=10&min_pop=10000]
  * One headline value per county (or state) for the choropleth map / rankings.
  * See lib/metrics.ts for the query.
  */
@@ -16,6 +16,7 @@ export async function GET(req: Request) {
     const geoType = searchParams.get("geo_type") || "county";
     const mode = searchParams.get("mode") || "all";
     const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "10", 10) || 10, 1), 100);
+    const minPopulation = Math.max(parseInt(searchParams.get("min_pop") || "0", 10) || 0, 0);
     if (!isMetricKey(metricKey)) return Response.json({ error: "unknown metric" }, { status: 400 });
     if (geoType !== "county" && geoType !== "state") {
       return Response.json({ error: "geo_type must be county or state" }, { status: 400 });
@@ -29,6 +30,7 @@ export async function GET(req: Request) {
       geoType,
       mode: mode as "all" | "top" | "bottom",
       limit,
+      minPopulation,
     });
     return Response.json(result);
   } catch (e) {

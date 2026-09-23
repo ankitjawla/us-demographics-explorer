@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import CountyMap from "./CountyMap";
+import { Highlights, HigherLower, PlaceInsights } from "./Insights";
+import { METRIC_DEFS, formatMetric, type MetricKey } from "@/lib/metricDefs";
 import { Donut, HBar, Pyramid, ChartEmpty, CHART_COLORS, COMPARE_COLORS } from "./Charts";
 import {
   computeIndicators,
@@ -62,6 +64,10 @@ const I = {
   x: "M18 6L6 18M6 6l12 12",
   menu: "M3 12h18M3 6h18M3 18h18",
   arrow: "M5 12h14M12 5l7 7-7 7",
+  dice: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8 8h.01M16 8h.01M12 12h.01M8 16h.01M16 16h.01",
+  share: "M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M16 6l-4-4-4 4M12 2v13",
+  spark: "M12 2l2.4 7.2H22l-6 4.6 2.3 7.2-6.3-4.5-6.3 4.5 2.3-7.2-6-4.6h7.6z",
+  game: "M6 12h4M8 10v4M15 13h.01M18 11h.01M17.32 5H6.68a4 4 0 0 0-3.978 3.59l-.9 8.1A3 3 0 0 0 4.78 20c1 0 1.9-.5 2.4-1.3L9 16h6l1.8 2.7c.5.8 1.4 1.3 2.4 1.3a3 3 0 0 0 2.98-3.31l-.9-8.1A4 4 0 0 0 17.32 5z",
 };
 
 const AVATAR_COLORS = ["bg-blue-600", "bg-orange-500", "bg-teal-600", "bg-purple-600", "bg-rose-500", "bg-emerald-600"];
@@ -129,6 +135,16 @@ function TrendBadge({
   );
 }
 
+/** Best-guess geo_type from a Census Reporter geo_id (for ?geo= deep links). */
+function geoTypeFromId(id: string): string {
+  if (id.startsWith("04000US")) return "state";
+  if (id.startsWith("05000US")) return "county";
+  if (id.startsWith("16000US")) return "place";
+  if (id.startsWith("06000US")) return "county_subdivision";
+  if (id.startsWith("14000US")) return "tract";
+  return "county";
+}
+
 /** Friendly label for geo types, incl. on-demand granularities. */
 function geoTypeLabel(g: { geo_type: string; name: string }): string {
   if (g.geo_type === "county_subdivision") {
@@ -180,12 +196,16 @@ function Avatar({ name, index = 0, size = "h-9 w-9 text-sm" }: { name: string; i
 
 /* ---------- overview chart cards ---------- */
 
-const RANK_METRICS = [
-  { key: "population", label: "Population", format: formatInt },
-  { key: "income", label: "Median income", format: formatMoney },
-  { key: "poverty", label: "Poverty rate", format: formatPct },
-  { key: "housing", label: "Housing units", format: formatInt },
-] as const;
+const RANK_METRIC_KEYS: MetricKey[] = [
+  "income", "population", "poverty", "diversity", "college", "seniors", "youth", "homeownership", "vacancy", "hispanic",
+];
+const RANK_METRICS = RANK_METRIC_KEYS.map((key) => ({
+  key,
+  label: METRIC_DEFS[key].label,
+  format: (v: number | null) => formatMetric(key, v),
+  // Rates on tiny counties are noisy — rank rate metrics among 10k+ residents only.
+  minPop: METRIC_DEFS[key].unit === "count" ? 0 : 10_000,
+}));
 
 interface RankRow {
   geo_id: string;
@@ -233,7 +253,7 @@ function metricPills<T extends string>(options: Array<{ key: T; label: string }>
 }
 
 function RankingsCard({ onSelect }: { onSelect: (g: Geography) => void }) {
-  const [metric, setMetric] = useState<(typeof RANK_METRICS)[number]["key"]>("income");
+  const [metric, setMetric] = useState<MetricKey>("income");
   const [mode, setMode] = useState<"top" | "bottom">("top");
   const [rows, setRows] = useState<RankRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -241,7 +261,8 @@ function RankingsCard({ onSelect }: { onSelect: (g: Geography) => void }) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch(`/api/metric-values?metric=${metric}&mode=${mode}&limit=10`)
+    const minPop = RANK_METRICS.find((m) => m.key === metric)?.minPop ?? 0;
+    fetch(`/api/metric-values?metric=${metric}&mode=${mode}&limit=10${minPop ? `&min_pop=${minPop}` : ""}`)
       .then((r) => r.json())
       .then((j) => {
         if (!cancelled) {
@@ -261,7 +282,7 @@ function RankingsCard({ onSelect }: { onSelect: (g: Geography) => void }) {
   return (
     <Card
       title="County rankings"
-      sub={`${mode === "top" ? "Highest" : "Lowest"} 10 U.S. counties by ${def.label.toLowerCase()} — tap a bar to open it`}
+      sub={`${mode === "top" ? "Highest" : "Lowest"} 10 U.S. counties by ${METRIC_DEFS[metric].noun}${def.minPop ? " (10,000+ residents)" : ""} — tap a bar to open it`}
     >
       <div className="mb-4 flex flex-wrap items-center gap-2">
         {metricPills(RANK_METRICS.map((m) => ({ key: m.key, label: m.label })), metric, setMetric)}
@@ -429,6 +450,8 @@ export default function Explorer() {  const [meta, setMeta] = useState<Meta | nu
 
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState<string | null>(null);
+  const [surprising, setSurprising] = useState(false);
+  const [shareMsg, setShareMsg] = useState<string | null>(null);
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -497,7 +520,16 @@ export default function Explorer() {  const [meta, setMeta] = useState<Meta | nu
     };
   }, [query]);
 
-  const selectGeo = useCallback(async (g: Geography) => {
+  const selectGeo = useCallback(async (g: Geography, push = true) => {
+    // Shareable deep link: ?geo=<geo_id> (back button returns to the previous view).
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("geo") !== g.geo_id) {
+        url.searchParams.set("geo", g.geo_id);
+        if (push) window.history.pushState({ geo: g.geo_id }, "", url);
+        else window.history.replaceState({ geo: g.geo_id }, "", url);
+      }
+    } catch { /* non-browser */ }
     setSelected(g);
     setQuery("");
     setShowResults(false);
@@ -556,6 +588,63 @@ export default function Explorer() {  const [meta, setMeta] = useState<Meta | nu
     return () => window.removeEventListener("chat:select-place", onChatSelect);
   }, [selectGeo]);
 
+  /* Deep links: open ?geo= on load, and follow browser back/forward. */
+  useEffect(() => {
+    const fromUrl = (push: boolean) => {
+      const id = new URL(window.location.href).searchParams.get("geo");
+      if (id && /^[0-9A-Za-z]{7,40}$/.test(id)) {
+        selectGeo({ geo_id: id, name: "Loading…", geo_type: geoTypeFromId(id), state_fips: id.slice(7, 9), state_name: "" }, push);
+        return true;
+      }
+      return false;
+    };
+    fromUrl(false);
+    const onPop = () => {
+      if (!fromUrl(false)) goHome(false);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openGeo = useCallback(
+    (g: Geography) => {
+      selectGeo(g);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    [selectGeo]
+  );
+
+  const surprise = useCallback(async () => {
+    setSurprising(true);
+    setSidebarOpen(false);
+    try {
+      const r = await fetch("/api/random");
+      const j = await r.json();
+      if (r.ok && j.geography) openGeo(j.geography as Geography);
+    } catch {
+      /* ignore */
+    } finally {
+      setSurprising(false);
+    }
+  }, [openGeo]);
+
+  const share = useCallback(async () => {
+    const url = window.location.href;
+    const title = selected ? `${selected.name} · US Demographics Explorer` : "US Demographics Explorer";
+    try {
+      if (navigator.share && window.matchMedia("(pointer: coarse)").matches) {
+        await navigator.share({ title, url });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      setShareMsg("Link copied");
+    } catch {
+      setShareMsg("Copy failed — use the address bar");
+    }
+    setTimeout(() => setShareMsg(null), 2200);
+  }, [selected]);
+
   const selectPlace = useCallback(
     (p: PlaceSuggestion) => {
       selectGeo({
@@ -569,7 +658,15 @@ export default function Explorer() {  const [meta, setMeta] = useState<Meta | nu
     [selectGeo]
   );
 
-  const goHome = useCallback(() => {
+  const goHome = useCallback((push = true) => {
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("geo")) {
+        url.searchParams.delete("geo");
+        if (push) window.history.pushState({}, "", url);
+        else window.history.replaceState({}, "", url);
+      }
+    } catch { /* non-browser */ }
     setSelected(null);
     setObs(null);
     setCounties([]);
@@ -601,6 +698,21 @@ export default function Explorer() {  const [meta, setMeta] = useState<Meta | nu
       setTimeout(() => scrollTo("compare"), 50);
     },
     [scrollTo]
+  );
+
+  /** Add any geography to the comparison (fetches its indicators first). */
+  const compareGeo = useCallback(
+    async (g: Geography) => {
+      try {
+        const r = await fetch(`/api/observations?geo_id=${encodeURIComponent(g.geo_id)}`);
+        const j = await r.json();
+        if (!r.ok) return;
+        addToCompare((j.geography as Geography) || g, computeIndicators(j.tables || {}));
+      } catch {
+        /* ignore */
+      }
+    },
+    [addToCompare]
   );
 
   async function doRefresh(force: boolean) {
@@ -684,7 +796,7 @@ export default function Explorer() {  const [meta, setMeta] = useState<Meta | nu
     {
       label: "Essentials",
       items: [
-        { label: "Overview", icon: I.grid, onClick: goHome, active: !selected },
+        { label: "Overview", icon: I.grid, onClick: () => goHome(), active: !selected },
         { label: "Compare", icon: I.columns, badge: compare.length || undefined, onClick: () => scrollTo("compare") },
         { label: "Refresh data", icon: I.refresh, onClick: () => doRefresh(false) },
       ],
@@ -693,6 +805,9 @@ export default function Explorer() {  const [meta, setMeta] = useState<Meta | nu
       label: "Explore",
       items: [
         { label: "Find a place", icon: I.pin, onClick: focusSearch },
+        { label: "Surprise me", icon: I.dice, onClick: surprise },
+        { label: "Did you know?", icon: I.spark, onClick: () => { if (selected) goHome(); setTimeout(() => scrollTo("highlights"), 60); } },
+        { label: "Higher or lower", icon: I.game, onClick: () => { if (selected) goHome(); setTimeout(() => scrollTo("game"), 60); } },
         { label: "Browse states", icon: I.map, onClick: () => { if (selected) goHome(); setTimeout(() => scrollTo("states"), 60); } },
       ],
     },
@@ -781,6 +896,15 @@ export default function Explorer() {  const [meta, setMeta] = useState<Meta | nu
               {selected ? selected.name : "Overview"}
             </h1>
             <div className="ml-auto flex items-center gap-2">
+              {shareMsg && <span className="text-xs font-semibold text-emerald-700" role="status">{shareMsg}</span>}
+              <button
+                onClick={share}
+                className="flex items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-100"
+                title="Share a link to this view"
+              >
+                <Icon d={I.share} />
+                <span className="hidden sm:inline">Share</span>
+              </button>
               <span className="hidden rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-medium text-stone-600 sm:inline">
                 {releaseLabel} · updated {updatedLabel}
               </span>
@@ -800,6 +924,9 @@ export default function Explorer() {  const [meta, setMeta] = useState<Meta | nu
             <div className="nice-scroll flex gap-2 overflow-x-auto px-4 pb-3 sm:px-6">
               {[
                 ["Snapshot", "snapshot"],
+                ["Quick take", "sec-quicktake"],
+                ["Where it stands", "sec-standing"],
+                ["Lookalikes", "sec-twins"],
                 ["Race", "sec-race"],
                 ["Ethnicity", "sec-ethnicity"],
                 ["Age", "sec-age"],
@@ -891,6 +1018,32 @@ export default function Explorer() {  const [meta, setMeta] = useState<Meta | nu
             )}
           </div>
 
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            <button
+              onClick={surprise}
+              disabled={surprising}
+              className="flex items-center gap-1.5 rounded-full bg-stone-900 px-3.5 py-1.5 font-semibold text-white hover:bg-stone-700 disabled:opacity-60"
+            >
+              <Icon d={I.dice} className={`h-3.5 w-3.5 ${surprising ? "animate-spin" : ""}`} />
+              {surprising ? "Rolling…" : "Surprise me"}
+            </button>
+            <span className="text-stone-400">or try</span>
+            {[
+              { geo_id: "05000US06037", name: "Los Angeles County, CA", geo_type: "county", state_fips: "06", state_name: "California" },
+              { geo_id: "05000US36061", name: "New York County, NY", geo_type: "county", state_fips: "36", state_name: "New York" },
+              { geo_id: "05000US12086", name: "Miami-Dade County, FL", geo_type: "county", state_fips: "12", state_name: "Florida" },
+              { geo_id: "04000US48", name: "Texas", geo_type: "state", state_fips: "48", state_name: "Texas" },
+            ].map((g) => (
+              <button
+                key={g.geo_id}
+                onClick={() => openGeo(g)}
+                className="rounded-full border border-stone-200 bg-white px-3 py-1.5 font-semibold text-stone-600 hover:border-blue-400 hover:text-blue-700"
+              >
+                {g.name.split(",")[0]}
+              </button>
+            ))}
+          </div>
+
           {!selected && (
             <>
               {/* stat cards */}
@@ -899,6 +1052,11 @@ export default function Explorer() {  const [meta, setMeta] = useState<Meta | nu
                 <StatCard label="Data points" value={meta?.obs_count ? Number(meta.obs_count).toLocaleString() : "—"} sub="ACS estimates in the database" />
                 <StatCard label="Release" value={meta?.release ? "2024" : "—"} sub={releaseLabel} />
                 <StatCard label="Last updated" value={updatedLabel} sub="Manual refresh available anytime" />
+              </div>
+
+              {/* national superlatives */}
+              <div id="highlights" className="mt-8 scroll-mt-32">
+                <Highlights onSelect={openGeo} />
               </div>
 
               {/* national county map */}
@@ -911,6 +1069,11 @@ export default function Explorer() {  const [meta, setMeta] = useState<Meta | nu
               {/* county rankings */}
               <div className="mt-8">
                 <RankingsCard onSelect={selectGeo} />
+              </div>
+
+              {/* guessing game */}
+              <div className="mt-8">
+                <HigherLower onSelect={openGeo} />
               </div>
 
               {/* largest states */}
@@ -981,7 +1144,7 @@ export default function Explorer() {  const [meta, setMeta] = useState<Meta | nu
                       + Compare
                     </button>
                   )}
-                  <button onClick={goHome} className="rounded-xl border border-stone-200 bg-white px-3.5 py-2 text-sm font-medium text-stone-600 hover:bg-stone-100">
+                  <button onClick={() => goHome()} className="rounded-xl border border-stone-200 bg-white px-3.5 py-2 text-sm font-medium text-stone-600 hover:bg-stone-100">
                     Clear
                   </button>
                 </div>
@@ -1072,6 +1235,8 @@ export default function Explorer() {  const [meta, setMeta] = useState<Meta | nu
                       Trend badges compare the 2024 ACS 5-year estimates with the 2019–2023 ACS 5-year — hover a badge for the before/after values.
                     </p>
                   )}
+
+                  <PlaceInsights geo={selected} onSelect={openGeo} onCompare={compareGeo} />
 
                   <div className="mt-8">
                     <Card
