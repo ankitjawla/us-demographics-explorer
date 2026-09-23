@@ -1,4 +1,5 @@
 import { getSql } from "@/lib/db";
+import { invalidateProfiles } from "@/lib/profiles";
 import {
   TABLES,
   detectLatest5yrRelease,
@@ -79,6 +80,7 @@ export async function POST(req: Request) {
     }
 
     await recordRefreshMeta(sql, release, geos.length);
+    invalidateProfiles();
     const refreshedAt = new Date().toISOString();
 
     return Response.json({

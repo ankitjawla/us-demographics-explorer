@@ -1,6 +1,7 @@
 import { searchPlaces } from "./placeSearch";
 import { getObservationsBundle } from "./observations";
 import { getMetricValues, isMetricKey, type MetricKey } from "./metrics";
+import { METRIC_DEFS, METRIC_KEYS } from "./metricDefs";
 import { getTrendData } from "./trends";
 import { computeIndicators } from "./indicators";
 
@@ -76,26 +77,31 @@ export async function toolGetRankings(args: {
 }) {
   const metric = String(args.metric || "").toLowerCase();
   if (!isMetricKey(metric)) {
-    return { error: "metric must be one of: population, income, poverty, housing" };
+    return { error: `metric must be one of: ${METRIC_KEYS.join(", ")}` };
   }
   const geoType = args.geo_type === "state" ? "state" : "county";
   const order = args.order === "bottom" ? "bottom" : "top";
   const limit = Math.min(Math.max(parseInt(String(args.limit ?? 10), 10) || 10, 1), 25);
   const stateFips = /^\d{2}$/.test(String(args.state_fips || "")) ? String(args.state_fips) : "";
+  const minPopulation = geoType === "county" && METRIC_DEFS[metric as MetricKey].unit !== "count" ? 10_000 : 0;
   const r = await getMetricValues({
     metric: metric as MetricKey,
     stateFips,
     geoType,
     mode: order,
     limit,
+    // Rates on tiny counties are noisy; rank them among 10k+ residents.
+    minPopulation,
   });
-  const unit = metric === "income" ? "$" : metric === "poverty" ? "%" : "";
+  const u = METRIC_DEFS[metric as MetricKey].unit;
+  const unit = u === "money" ? "$" : u === "pct" ? "%" : u === "index" ? "index 0–100" : "";
   return {
     metric,
     unit,
     order,
     geo_type: geoType,
     state_fips: stateFips || null,
+    ...(minPopulation ? { note: `only counties with ${minPopulation.toLocaleString("en-US")}+ residents are ranked` } : {}),
     rankings: r.geos.map((g) => ({
       name: g.name,
       state: g.state_name,

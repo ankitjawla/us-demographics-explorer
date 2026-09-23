@@ -93,6 +93,11 @@ DATABASE_URL="postgresql://..." node scripts/seed.mjs
 | `GET /api/geographies?q=&state_fips=&type=&limit=` | Search states/counties; `state_fips=06` lists a state's counties (drill-down) |
 | `GET /api/observations?geo_id=05000US06001` | All stored variables for one geography + release |
 | `GET /api/meta` | `{ release, refreshed_at, geo_count, seeded }` for the header label |
+| `GET /api/metric-values?metric=&state_fips=&geo_type=&mode=&limit=&min_pop=` | One value per county/state for the map & rankings. Metrics: `population`, `income`, `poverty`, `housing`, `diversity`, `college`, `hispanic`, `homeownership`, `seniors`, `youth`, `vacancy` |
+| `GET /api/insights?geo_id=` | Percentile vs U.S. peers, in-state rank, lookalike places ("twins") and plain-language quick facts |
+| `GET /api/highlights` | National county superlatives ("Did you know?") among counties with 10k+ residents |
+| `GET /api/quiz?rounds=10` | Random county pairs for the Higher-or-Lower game |
+| `GET /api/random` | A random county ("Surprise me") |
 | `POST /api/refresh` | Pull newest 5-yr release → upsert → update `refresh_meta`. **429** if refreshed < 6h ago; `?force=1` + `REFRESH_TOKEN` bypasses. Returns `{ release, geos, observations, refreshed_at }`. |
 
 ## UI
@@ -103,6 +108,26 @@ geographies), indicator cards with CSS bar charts, a **Refresh data** button
 (disabled while running, shows result/errors), and a persistent
 `Data: {release} · updated {timestamp}` label. Gender identity is shown as an
 explicit “unavailable” notice.
+
+### Insights layer
+
+`lib/profiles.ts` computes every headline metric for all states and counties
+in **one aggregated SQL query** (one row per geography) and caches it in
+memory for 30 minutes (cleared after a refresh). On top of it:
+
+- **Map & rankings** can color/rank by 11 metrics, including a **diversity
+  index** (Simpson index over the 8 B03002 race/ethnicity groups: the chance
+  two random residents differ), college grads, age 65+, under 18,
+  homeownership and vacancy. Rate rankings skip counties under 10,000 people.
+- **Quick take** — the 3–4 metrics where a place is most unusual, phrased as
+  sentences ("Highest median household income of 21 counties in New Jersey").
+- **Where it stands** — percentile tracks vs all U.S. counties (or states),
+  with national and in-state ranks.
+- **Places like this** — nearest neighbours on z-scored income, poverty,
+  education, race/ethnicity, age, housing (and size for counties/states).
+  The match score is calibrated so a typical random county scores 50%.
+- **Did you know?**, a **Higher-or-Lower** game, **Surprise me**, and
+  shareable **`?geo=<geo_id>`** links (with working browser back/forward).
 
 ## Deploy to Vercel
 

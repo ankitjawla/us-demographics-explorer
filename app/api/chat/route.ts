@@ -4,7 +4,8 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { HumanMessage, AIMessage, ToolMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { toolSearchPlace, toolGetSnapshot, toolGetRankings, toolGetTrends } from "@/lib/chatTools";
-import { formatInt, formatPct, formatMoney } from "@/lib/indicators";
+import { formatInt } from "@/lib/indicators";
+import { METRIC_DEFS, METRIC_KEYS, formatMetric, isMetricKey } from "@/lib/metricDefs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -27,7 +28,7 @@ const SYSTEM_PROMPT = `You are the friendly data assistant inside "US Demographi
 You have tools that query the app's real database — ALWAYS use them for any factual claim about a place, a number, a ranking, or a trend. Never invent statistics, place names, or geo IDs.
 - search_place: resolve a town/city/township/county/state name to official geographies. Call this FIRST whenever the user names a place, then use the returned geo_id with the other tools.
 - get_snapshot: headline stats for one geo_id (population, median household income, poverty rate, housing, demographics highlights).
-- get_rankings: top/bottom rankings by metric (population | income | poverty | housing), optionally within one state via state_fips (e.g. "34" for New Jersey) or across states via geo_type "state".
+- get_rankings: top/bottom rankings by metric (population | income | poverty | housing | diversity | college | hispanic | homeownership | seniors | youth | vacancy), optionally within one state via state_fips (e.g. "34" for New Jersey) or across states via geo_type "state".
 - get_trends: change since the previous ACS release for one geo_id.
 
 Geography levels available: states, counties, incorporated places (boroughs/cities/villages), townships / county subdivisions, and census tracts.
@@ -111,7 +112,11 @@ function buildAgent() {
       name: "get_rankings",
       description: "Top/bottom rankings of counties or states by a headline metric.",
       schema: z.object({
-        metric: z.enum(["population", "income", "poverty", "housing"]),
+        metric: z
+          .enum(METRIC_KEYS)
+          .describe(
+            "diversity = 0–100 chance two random residents differ in race/ethnicity; college = % adults 25+ with bachelor's+; seniors = % 65+; youth = % under 18; vacancy = % housing units vacant"
+          ),
         state_fips: z
           .string()
           .optional()
@@ -206,17 +211,13 @@ function fipsFromGeoId(geo_id: string): string {
   return m ? m[1] : "";
 }
 
-const METRIC_LABEL: Record<string, string> = {
-  population: "population",
-  income: "median household income",
-  poverty: "poverty rate",
-  housing: "housing units",
-};
+const METRIC_LABEL: Record<string, string> = Object.fromEntries(
+  METRIC_KEYS.map((k) => [k, METRIC_DEFS[k].noun])
+);
 
 function fmtMetric(metric: string, v: number | null): string {
   if (v == null || !Number.isFinite(v)) return "—";
-  if (metric === "income") return formatMoney(v);
-  if (metric === "poverty") return formatPct(v);
+  if (isMetricKey(metric)) return formatMetric(metric, v);
   return formatInt(v);
 }
 
